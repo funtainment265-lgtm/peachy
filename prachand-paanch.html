@@ -455,6 +455,10 @@
 
             <div id="addPersonForm" style="display: none;">
                 <div class="form-group">
+                    <label>Army No</label>
+                    <input type="text" id="personArmyNo" placeholder="Enter Army Number">
+                </div>
+                <div class="form-group">
                     <label>Name</label>
                     <input type="text" id="personName" placeholder="Enter name">
                 </div>
@@ -982,6 +986,7 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
 
         let importData = [];
         let currentFileName = '';
+        let currentColumnSchema = []; // Store column schema for dynamic adaptation
 
         function handleFileUpload(event) {
             const file = event.target.files[0];
@@ -992,10 +997,12 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
             const reader = new FileReader();
             reader.onload = function(e) {
                 const content = e.target.result;
-                importData = parseCSV(content);
+                const parsed = parseCSV(content);
+                importData = parsed.data;
+                currentColumnSchema = parsed.schema;
                 
                 if (importData.length === 0) {
-                    alert('No valid data found in file. Please ensure CSV has columns: Name, Rank, Skills, Experience, Details');
+                    alert('No valid data found in file. Please ensure the CSV file has a header row with column names.');
                     return;
                 }
 
@@ -1008,28 +1015,37 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
             const lines = content.split('\n').filter(line => line.trim());
             const data = [];
             
-            // Skip header row if it exists
-            const startIndex = lines[0].toLowerCase().includes('name') ? 1 : 0;
+            if (lines.length === 0) return { data: [], schema: [] };
             
-            for (let i = startIndex; i < lines.length; i++) {
+            // Parse header row to get all column names
+            const headerLine = lines[0].trim();
+            const headers = parseCSVLine(headerLine);
+            
+            // Store the actual column schema
+            const schema = headers.map((h, index) => ({
+                index: index,
+                name: h.trim(),
+                key: h.trim().toLowerCase().replace(/[^a-z0-9]/g, '_')
+            }));
+            
+            // Parse data rows
+            for (let i = 1; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (!line) continue;
                 
                 // Parse CSV line (handle quoted values)
                 const values = parseCSVLine(line);
                 
-                if (values.length >= 1 && values[0]) {
-                    data.push({
-                        name: values[0] || '',
-                        rank: values[1] || '',
-                        skills: values[2] || '',
-                        experience: values[3] || '',
-                        details: values[4] || ''
+                if (values.length > 0 && values[0]) {
+                    const row = {};
+                    schema.forEach(col => {
+                        row[col.key] = values[col.index] || '';
                     });
+                    data.push(row);
                 }
             }
             
-            return data;
+            return { data, schema };
         }
 
         function parseCSVLine(line) {
@@ -1084,14 +1100,26 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
                 return;
             }
             
+            // Add to imported files tracking with schema
+            const fileRecord = {
+                id: Date.now(),
+                fileName: currentFileName,
+                company: company,
+                recordCount: importData.length,
+                schema: currentColumnSchema,
+                importedAt: new Date().toISOString()
+            };
+            importedFiles.push(fileRecord);
+            localStorage.setItem('importedFiles', JSON.stringify(importedFiles));
+            
+            // Store schema globally for this company
+            if (!window.companySchemas) window.companySchemas = {};
+            window.companySchemas[company] = currentColumnSchema;
+            
             importData.forEach(item => {
                 const person = {
                     id: Date.now() + Math.random(),
-                    name: item.name,
-                    rank: item.rank,
-                    skills: item.skills,
-                    experience: item.experience,
-                    details: item.details,
+                    ...item, // Include all dynamic columns
                     company: company,
                     createdAt: new Date().toISOString()
                 };
@@ -1126,6 +1154,7 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
 
         function hideAddPerson() {
             document.getElementById('addPersonForm').style.display = 'none';
+            document.getElementById('personArmyNo').value = '';
             document.getElementById('personName').value = '';
             document.getElementById('personCompany').value = '';
             document.getElementById('personRank').value = '';
@@ -1135,6 +1164,7 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
         }
 
         function savePerson() {
+            const armyNo = document.getElementById('personArmyNo').value.trim();
             const name = document.getElementById('personName').value.trim();
             const company = document.getElementById('personCompany').value.trim();
             const rank = document.getElementById('personRank').value.trim();
@@ -1149,6 +1179,7 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
 
             const person = {
                 id: Date.now(),
+                armyNo,
                 name,
                 company: company || '',
                 rank,
@@ -1214,6 +1245,7 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
                 <table style="width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; margin-bottom: 20px;">
                     <thead>
                         <tr style="background: rgba(233, 69, 96, 0.3);">
+                            <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.1);">Army No</th>
                             <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.1);">Name</th>
                             <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.1);">Company</th>
                             <th style="padding: 12px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.1);">Rank</th>
@@ -1229,6 +1261,11 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
             filteredData.forEach((person, index) => {
                 tableHTML += `
                     <tr style="${index % 2 === 0 ? 'background: rgba(255,255,255,0.02);' : ''} border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <td style="padding: 10px;">
+                            <input type="text" value="${person.armyNo || ''}" 
+                                   onchange="updatePerson(${person.id}, 'armyNo', this.value)"
+                                   style="width: 100%; padding: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 5px; color: #fff;">
+                        </td>
                         <td style="padding: 10px;">
                             <input type="text" value="${person.name}" 
                                    onchange="updatePerson(${person.id}, 'name', this.value)"
@@ -1453,8 +1490,8 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
                     document.getElementById('aiResponseContent').innerHTML = 'Error: ' + data.error;
                 }
             } catch (error) {
-                // Fallback to local AI analysis if backend is not available
-                console.log('Backend not available, using local analysis');
+                // Fallback to local AI analysis if backend is not available or returns no data
+                console.log('Backend not available or returned error, using local analysis. Error:', error);
                 const accessibleCompanies = getUserAccessibleCompanies();
                 let filteredPersonnelData = personnelData;
                 if (accessibleCompanies.length > 0) {
@@ -1462,7 +1499,20 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
                 }
 
                 if (filteredPersonnelData.length === 0) {
-                    document.getElementById('aiResponseContent').innerHTML = 'No personnel data available for your authorized companies. Please add some personnel information first.';
+                    document.getElementById('aiResponseContent').innerHTML = `
+                        <div style="text-align: center; padding: 40px;">
+                            <div style="font-size: 4rem; margin-bottom: 20px;">📭</div>
+                            <h3 style="color: #e94560; margin-bottom: 15px;">No Data Available</h3>
+                            <p style="color: #888; margin-bottom: 20px;">No personnel data found for your authorized companies.</p>
+                            <div style="background: rgba(102, 126, 234, 0.1); padding: 20px; border-radius: 10px; max-width: 500px; margin: 0 auto;">
+                                <strong style="color: #667eea;">💡 To add data:</strong>
+                                <ul style="margin-top: 10px; margin-left: 20px; color: #fff;">
+                                    <li>Import a CSV/Excel file using "Import File"</li>
+                                    <li>Add individual personnel using "Add Person"</li>
+                                    <li>Contact administrator for data access</li>
+                                </ul>
+                            </div>
+                        </div>`;
                     return;
                 }
 
@@ -1473,9 +1523,10 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
                 if (companyFilter) {
                     const companyFiles = importedFiles.filter(f => f.company === companyFilter);
                     const fileNames = companyFiles.map(f => f.fileName).join(', ');
+                    const recordCount = filteredPersonnelData.filter(p => p.company === companyFilter).length;
                     companyInfo = `<div style="margin-top: 15px; padding: 10px; background: rgba(233, 69, 96, 0.2); border-radius: 8px; font-size: 0.9rem;">
-                        <strong>📁 Data Source:</strong> Company ${companyFilter}<br>
-                        <strong>📄 Files Accessed:</strong> ${fileNames || 'No files imported yet'}
+                        <strong>📁 Data Source:</strong> Company ${companyFilter} (${recordCount} records)<br>
+                        <strong>📄 Files Accessed:</strong> ${fileNames || 'Local database'}
                     </div>`;
                 } else {
                     const accessibleCompanyNames = accessibleCompanies.length > 0 ? accessibleCompanies.join(', ') : 'All Companies';
@@ -2421,6 +2472,7 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
                     <thead>
                         <tr style="background: rgba(238, 90, 36, 0.4);">
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">#</th>
+                            <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Army No</th>
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Name</th>
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Company</th>
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Rank</th>
@@ -2438,6 +2490,7 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
                 tableHTML += `
                     <tr style="${index % 2 === 0 ? 'background: rgba(255,255,255,0.03);' : ''} border-bottom: 1px solid rgba(255,255,255,0.08);">
                         <td style="padding: 15px; font-weight: bold; color: #ee5a24;">${index + 1}</td>
+                        <td style="padding: 15px; color: #00b894; font-weight: 500;">${p.armyNo || '-'}</td>
                         <td style="padding: 15px; font-weight: 600; color: #ffffff;">${p.name}</td>
                         <td style="padding: 15px; color: #f39c12; font-weight: 500;">${p.company || '-'}</td>
                         <td style="padding: 15px; color: #ddd;">${p.rank || '-'}</td>
@@ -2489,6 +2542,7 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
                     <thead>
                         <tr style="background: rgba(238, 90, 36, 0.4);">
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">#</th>
+                            <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Army No</th>
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Name</th>
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Company</th>
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Rank</th>
@@ -2506,6 +2560,7 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
                 tableHTML += `
                     <tr style="${index % 2 === 0 ? 'background: rgba(255,255,255,0.03);' : ''} border-bottom: 1px solid rgba(255,255,255,0.08);">
                         <td style="padding: 15px; font-weight: bold; color: #ee5a24;">${index + 1}</td>
+                        <td style="padding: 15px; color: #00b894; font-weight: 500;">${p.armyNo || '-'}</td>
                         <td style="padding: 15px; font-weight: 600; color: #ffffff;">${p.name}</td>
                         <td style="padding: 15px; color: #f39c12; font-weight: 500;">${p.company || '-'}</td>
                         <td style="padding: 15px; color: #ddd;">${p.rank || '-'}</td>
@@ -2543,6 +2598,7 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
                     <thead>
                         <tr style="background: rgba(238, 90, 36, 0.4);">
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">#</th>
+                            <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Army No</th>
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Name</th>
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Company</th>
                             <th style="padding: 15px; text-align: left; border-bottom: 2px solid rgba(255,255,255,0.15);">Rank</th>
@@ -2560,6 +2616,7 @@ Jane Smith,Lieutenant,Combat Engineer,3 years,Kargil veteran</pre>
                 tableHTML += `
                     <tr style="${index % 2 === 0 ? 'background: rgba(255,255,255,0.03);' : ''} border-bottom: 1px solid rgba(255,255,255,0.08);">
                         <td style="padding: 15px; font-weight: bold; color: #ee5a24;">${index + 1}</td>
+                        <td style="padding: 15px; color: #00b894; font-weight: 500;">${p.armyNo || '-'}</td>
                         <td style="padding: 15px; font-weight: 600; color: #ffffff;">${p.name}</td>
                         <td style="padding: 15px; color: #f39c12; font-weight: 500;">${p.company || '-'}</td>
                         <td style="padding: 15px; color: #ddd;">${p.rank || '-'}</td>
