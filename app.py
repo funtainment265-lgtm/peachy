@@ -281,21 +281,23 @@ def detect_column_meaning(col_name, sample_values):
     """Detect the meaning of a column based on name and sample values"""
     col_lower = col_name.lower()
     
-    # Common column patterns
+    # Common column patterns - updated for military personnel database
     patterns = {
-        'name': ['name', 'person', 'employee', 'soldier', 'individual'],
-        'qualification': ['qual', 'education', 'degree', 'btech', 'mba', 'phd', 'b.e', 'm.e'],
-        'sports': ['sport', 'game', 'athletic', 'football', 'cricket', 'basketball', 'tennis'],
-        'experience': ['exp', 'service', 'years', 'tenure', 'duration', 'svc'],
-        'department': ['dept', 'unit', 'company', 'branch', 'division'],
+        'name': ['name', 'person', 'employee', 'soldier', 'individual', 'wife name'],
+        'qualification': ['qual', 'education', 'degree', 'btech', 'mba', 'phd', 'b.e', 'm.e', 'couse', 'course'],
+        'sports': ['sport', 'game', 'athletic', 'football', 'cricket', 'basketball', 'tennis', 'sports event'],
+        'experience': ['exp', 'service', 'years', 'tenure', 'duration', 'svc', 'ere', 'appt duty'],
+        'department': ['dept', 'unit', 'company', 'branch', 'division', 'coy'],
         'rank': ['rank', 'designation', 'position', 'grade', 'level'],
-        'medical': ['medical', 'health', 'shape', 'category', 'fitness'],
+        'medical': ['medical', 'health', 'shape', 'category', 'fitness', 'med cat', 'blood gp'],
         'trade': ['trade', 'skill', 'specialization', 'technical', 'signals', 'it', 'electronics'],
-        'location': ['location', 'place', 'station', 'post', 'area'],
-        'id': ['id', 'code', 'number', 'roll', 'reg', 'emp'],
-        'date': ['date', 'time', 'dob', 'joining', 'birth'],
+        'location': ['location', 'place', 'station', 'post', 'area', 'vill', 'teh', 'distt', 'state', 'pin code'],
+        'id': ['id', 'code', 'number', 'roll', 'reg', 'emp', 'army no', 'i card number', 'uid no', 'pan number', 'sr no'],
+        'date': ['date', 'time', 'dob', 'joining', 'birth', 'doe', 'dor', 'dom', 'from', 'to', 'dob wife', 'dob ch1'],
         'age': ['age', 'years_old', 'yrs'],
-        'contact': ['contact', 'phone', 'mobile', 'email', 'address']
+        'contact': ['contact', 'phone', 'mobile', 'email', 'address', 'mob no', 'e mail id'],
+        'family': ['wife', 'children', 'marital', 'cast', 'achievement', 'punishment'],
+        'financial': ['acct', 'account', 'bank', 'single acct', 'jt account']
     }
     
     for meaning, keywords in patterns.items():
@@ -317,24 +319,71 @@ def detect_column_meaning(col_name, sample_values):
     return col_name.capitalize()
 
 def generate_column_synonyms(col_name, detected_meaning):
-    """Generate synonyms for a column name"""
+    """Generate synonyms for a column name - updated for military personnel database"""
     synonyms = [col_name]
     col_lower = col_name.lower()
     
-    # Common synonym mappings
+    # Common synonym mappings - updated for military columns
     synonym_map = {
-        'name': ['full name', 'person name', 'employee name', 'soldier name'],
-        'qualification': ['education', 'degree', 'academic', 'qual'],
-        'sports': ['games', 'athletics', 'sports played', 'activities'],
-        'experience': ['service years', 'tenure', 'years of service', 'work experience', 'svc yrs'],
-        'department': ['dept', 'unit', 'company', 'branch', 'division'],
+        'name': ['full name', 'person name', 'employee name', 'soldier name', 'individual name'],
+        'qualification': ['education', 'degree', 'academic', 'qual', 'course', 'courses completed'],
+        'sports': ['games', 'athletics', 'sports played', 'activities', 'sports event'],
+        'experience': ['service years', 'tenure', 'years of service', 'work experience', 'svc yrs', 'ere', 'extra regimental duty'],
+        'department': ['dept', 'unit', 'company', 'branch', 'division', 'coy', 'company'],
         'rank': ['designation', 'position', 'grade', 'level'],
-        'medical': ['health', 'medical category', 'shape', 'fitness'],
+        'medical': ['health', 'medical category', 'shape', 'fitness', 'med cat', 'blood group'],
         'trade': ['skill', 'specialization', 'technical', 'trade'],
         'service': ['service years', 'tenure', 'years served'],
-        'id': ['code', 'number', 'roll number', 'employee id']
+        'id': ['code', 'number', 'roll number', 'employee id', 'army number', 'army no', 'identity card', 'i card', 'uid', 'aadhar', 'pan', 'serial number', 'sr no'],
+        'date': ['date of birth', 'birth date', 'joining date', 'enrollment date', 'retirement date', 'marriage date', 'dob', 'doe', 'dor', 'dom'],
+        'contact': ['phone', 'mobile', 'email', 'address', 'mob no', 'mobile number', 'email id'],
+        'family': ['wife', 'spouse', 'children', 'kids', 'marital status', 'caste', 'achievements', 'awards', 'punishment record'],
+        'financial': ['account', 'bank account', 'bank details', 'single account', 'joint account', 'acct no'],
+        'location': ['village', 'post office', 'tehsil', 'district', 'state', 'pincode', 'address', 'residence']
     }
     
+    # Specific column name mappings
+    specific_mappings = {
+        'army no': ['army number', 'service number', 'military id'],
+        'i card number': ['identity card', 'id card', 'icard'],
+        'uid no': ['aadhar', 'aadhaar', 'uid'],
+        'pan number': ['pan', 'pan card'],
+        'blood gp': ['blood group', 'blood type'],
+        'med cat': ['medical category', 'med category', 'shape'],
+        'coy': ['company', 'unit', 'coy'],
+        'dob': ['date of birth', 'birth date'],
+        'doe': ['date of enrollment', 'enrollment date', 'joining date'],
+        'dor': ['date of retirement', 'retirement date'],
+        'dom': ['date of marriage', 'marriage date'],
+        'mob no': ['mobile number', 'phone number', 'contact number'],
+        'e mail id': ['email', 'email address', 'mail id'],
+        'single acct no': ['single account', 'personal account', 'individual account'],
+        'jt account no': ['joint account', 'joint bank account'],
+        'couse': ['course', 'qualification', 'training'],
+        'ere': ['extra regimental duty', 'additional duty', 'ere duty'],
+        'appt duty': ['appointment', 'current duty', 'present posting', 'current appointment'],
+        'sports event': ['sports', 'games', 'athletics', 'sports played'],
+        'achievement': ['awards', 'medals', 'honors', 'achievements'],
+        'punishment': ['disciplinary action', 'penalty', 'punishment record'],
+        'marital status': ['married', 'unmarried', 'marriage status'],
+        'vill': ['village', 'native place'],
+        'post': ['post office', 'po'],
+        'teh': ['tehsil', 'taluka'],
+        'distt': ['district'],
+        'pin code': ['pincode', 'postal code', 'zip'],
+        'wife name': ['spouse name', 'wife'],
+        'dob wife': ['wife dob', 'wife date of birth', 'spouse dob'],
+        'children1': ['first child', 'child 1', 'eldest child'],
+        'dob ch1': ['first child dob', 'child 1 dob'],
+        'children 2': ['second child', 'child 2']
+    }
+    
+    # Add specific mappings
+    for key, syns in specific_mappings.items():
+        if key in col_lower:
+            synonyms.extend(syns)
+    
+    # Add general synonym mappings
     for key, syns in synonym_map.items():
         if key in col_lower or key in detected_meaning.lower():
             synonyms.extend(syns)
@@ -820,23 +869,24 @@ def chat_public():
             context = f"Retrieved from {len(source_info)} document chunks:\n" + context
     
     # Use the same system prompt as the authenticated endpoint
-    system_prompt = """You are an intelligent data analysis and presentation assistant. Your job is to provide accurate, well-formatted, professional responses based on user intent.
+    system_prompt = """You are an intelligent military personnel data analysis assistant. Your job is to provide accurate, well-formatted, professional responses based on user queries about military personnel records.
 
 CRITICAL DATA ACCURACY RULES:
 
-A. STRICT QUALIFICATION MATCHING
-- When user asks for specific qualification (e.g., "B.Tech", "MBA", "Technical"), return ONLY personnel where that qualification exists in the Qualification field
-- Example: "B.Tech qualified personnel" → Only include records where "B.Tech" is explicitly present in Qualification column
-- Qualifications like "B.Tech, M.Tech" → Include (B.Tech present)
-- Qualifications like "MBA, B.Tech" → Include (B.Tech present)
-- Qualifications like "MBA, PhD" → Exclude (B.Tech absent)
+A. STRICT QUALIFICATION/COURSE MATCHING
+- When user asks for specific qualification/course (e.g., "B.Tech", "Technical", "Course"), return ONLY personnel explicitly matching that qualification in the "couse/course" field
+- Qualifications must be EXACTLY present in the course field
+- Example: "B.Tech personnel" → Only include records where "B.Tech" is explicitly present in course field
+- Courses like "B.Tech, M.Tech" → Include (B.Tech present)
+- Courses like "MBA, B.Tech" → Include (B.Tech present)
+- Courses like "MBA, PhD" → Exclude (B.Tech absent)
 - NEVER infer or assume related qualifications
 - If qualification-specific data not available: "[Qualification]-specific data is not available. Unable to determine [qualification] holders."
 - For "technical qualification" queries: Only include B.Tech, M.Tech, B.E., M.E., or similar technical degrees. EXCLUDE MBA, PhD, Arts, Commerce, etc.
 
 B. STRICT SPORTS MATCHING
-- When user asks for specific sport (e.g., "Football", "Cricket", "Basketball"), return ONLY personnel where that sport exists in the Sports field
-- Example: "Football players" → Only include records where "Football" is explicitly present in Sports column
+- When user asks for specific sport (e.g., "Football", "Cricket", "Basketball"), return ONLY personnel where that sport exists in the "sports event" field
+- Example: "Football players" → Only include records where "Football" is explicitly present in sports event column
 - Sports like "Cricket, Football" → Include (Football present)
 - Sports like "Football, Basketball" → Include (Football present)
 - Sports like "Volleyball, Tennis" → Exclude (Football absent)
@@ -845,8 +895,9 @@ B. STRICT SPORTS MATCHING
 
 C. STRICT FILTERING
 - Apply ALL filters specified in the query
-- If user asks for "Company A personnel", ONLY return Company A records
-- If user asks for "personnel with X skill", ONLY return records where X is present
+- If user asks for "Company A personnel" (coy field), ONLY return Company A records
+- If user asks for "personnel with X rank", ONLY return records where X is present in rank field
+- If user asks for "personnel from X village", ONLY return records where X is present in vill field
 - NEVER include records that don't match specified criteria
 - If no records match: "No records found matching the specified criteria."
 
@@ -868,17 +919,32 @@ F. QUERY VERIFICATION
 - If query is ambiguous: ask for clarification or provide the most relevant available information
 
 G. COLUMN SEPARATION
-- For tabular/structured responses, ensure Sports and Experience are in separate columns
-- NEVER combine Sports and Experience in a single column
-- Format: | Name | Department | Sports | Experience | ...
+- For tabular/structured responses, ensure relevant fields are in separate columns
+- NEVER combine different data types in a single column
+- Format: | Army No | Name | Rank | Company | Qualification | Sports | ...
 
 H. QUERY INTENT RULES
 - Evaluate query intent in this order:
-  1. Qualification-specific queries (e.g., "B.Tech personnel") → Apply STRICT QUALIFICATION MATCHING
+  1. Qualification/course-specific queries (e.g., "B.Tech personnel") → Apply STRICT QUALIFICATION MATCHING
   2. Sport-specific queries (e.g., "Football players") → Apply STRICT SPORTS MATCHING
   3. Company-specific queries (e.g., "Company A personnel") → Apply STRICT FILTERING
-  4. Skill/experience queries → Apply NO ASSUMPTIONS
-  5. General queries → Provide comprehensive information from context
+  4. Rank-specific queries (e.g., "Lieutenant personnel") → Apply STRICT FILTERING
+  5. Location-specific queries (e.g., "personnel from X village") → Apply STRICT FILTERING
+  6. General queries → Provide comprehensive information from context
+
+I. DATE FIELD HANDLING
+- When querying dates (dob, doe, dor, dom), use the actual date values from the respective columns
+- DOB = Date of Birth
+- DOE = Date of Enrollment
+- DOR = Date of Retirement
+- DOM = Date of Marriage
+- For date range queries, compare against the appropriate date field
+
+J. FAMILY INFORMATION HANDLING
+- Wife information is in "wife name" and "dob wife" fields
+- Children information is in "children1", "dob ch1", "children 2" fields
+- Marital status is in "marital status" field
+- Caste information is in "cast" field
 
 ABSOLUTE FORMAT RULES:
 - If user asks for "table", "tabular format", "tabular", "in a table": Provide ONLY a Markdown table. Nothing else.
@@ -891,13 +957,15 @@ ABSOLUTE FORMAT RULES:
 
 Example correct responses:
 Table format:
-| Name | Department | Qualification |
-| --- | --- | --- |
-| Person001 | A | B.Tech |
+| Army No | Name | Rank | Company | Qualification |
+| --- | --- | --- | --- | --- |
+| 12345 | John Doe | Lieutenant | A | B.Tech |
 
 Bullet point format:
-- Name: Person001
-- Department: A
+- Army No: 12345
+- Name: John Doe
+- Rank: Lieutenant
+- Company: A
 - Qualification: B.Tech
 
 IMPORTANT SECURITY INSTRUCTIONS:
