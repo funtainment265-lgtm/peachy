@@ -26,7 +26,7 @@ CORS(app, supports_credentials=True, origins='*', allow_headers=['Content-Type',
 
 # Session configuration - use cookie-based sessions
 app.config['SECRET_KEY'] = 'your-secret-key-change-this-in-production'
-app.config['SESSION_COOKIE_HTTPONLY'] = False
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 
@@ -700,7 +700,6 @@ def get_current_user():
 
 @app.route('/api/upload', methods=['POST'])
 @login_required
-@admin_required
 def upload_file():
     print(f"Upload request received. Session: {session}")
     print(f"Files in request: {list(request.files.keys())}")
@@ -760,8 +759,8 @@ def upload_file():
                     "source": filename, 
                     "chunk": i, 
                     "is_excel": file_ext in ['xlsx', 'xls'], 
-                    "company": company,
-                    "uploaded_by": session.get('user_id')
+                    "company": company or "ALL",  # Default to ALL if None
+                    "uploaded_by": session.get('user_id', 1)  # Default to 1 if no session
                 }
                 # Only add table_data for first chunk if it exists
                 if i == 0 and table_data_json:
@@ -782,7 +781,7 @@ def upload_file():
             cursor.execute('''
                 INSERT INTO files (filename, original_filename, company, file_size, uploaded_by)
                 VALUES (?, ?, ?, ?, ?)
-            ''', (filename, file.filename, company, file_size, session.get('user_id')))
+            ''', (filename, file.filename, company, file_size, session.get('user_id', 1)))  # Default to 1 if no session
             file_id = cursor.lastrowid
             conn.commit()
             print(f"File metadata stored in database with ID: {file_id}")
@@ -868,130 +867,139 @@ def chat_public():
         if source_info:
             context = f"Retrieved from {len(source_info)} document chunks:\n" + context
     
-    # Use the same system prompt as the authenticated endpoint
-    system_prompt = """You are an intelligent military personnel data analysis assistant. Your job is to provide accurate, well-formatted, professional responses based on user queries about military personnel records.
+    # Enhanced system prompt for general knowledge + document-based queries
+    system_prompt = """You are an intelligent AI assistant powered by Llama 3. You have access to uploaded documents (Excel sheets, PDFs, Word files) and can also use your general knowledge to answer questions.
 
-CRITICAL DATA ACCURACY RULES:
+CAPABILITY RULES:
 
-A. STRICT QUALIFICATION/COURSE MATCHING
-- When user asks for specific qualification/course (e.g., "B.Tech", "Technical", "Course"), return ONLY personnel explicitly matching that qualification in the "couse/course" field
-- Qualifications must be EXACTLY present in the course field
-- Example: "B.Tech personnel" → Only include records where "B.Tech" is explicitly present in course field
-- Courses like "B.Tech, M.Tech" → Include (B.Tech present)
-- Courses like "MBA, B.Tech" → Include (B.Tech present)
-- Courses like "MBA, PhD" → Exclude (B.Tech absent)
-- NEVER infer or assume related qualifications
-- If qualification-specific data not available: "[Qualification]-specific data is not available. Unable to determine [qualification] holders."
-- For "technical qualification" queries: Only include B.Tech, M.Tech, B.E., M.E., or similar technical degrees. EXCLUDE MBA, PhD, Arts, Commerce, etc.
+A. GENERAL KNOWLEDGE QUERIES
+- If the user asks about general topics (science, history, technology, current events, etc.) NOT related to uploaded documents, use your full Llama 3 knowledge base
+- Provide accurate, well-structured responses using your training data
+- Be helpful and comprehensive for general questions
+- Examples: "What is machine learning?", "Explain quantum physics", "Who won the World Cup?"
 
-B. STRICT SPORTS MATCHING
-- When user asks for specific sport (e.g., "Football", "Cricket", "Basketball"), return ONLY personnel where that sport exists in the "sports event" field
-- Example: "Football players" → Only include records where "Football" is explicitly present in sports event column
-- Sports like "Cricket, Football" → Include (Football present)
-- Sports like "Football, Basketball" → Include (Football present)
-- Sports like "Volleyball, Tennis" → Exclude (Football absent)
-- NEVER infer suitability from other sports
-- If sport-specific data not available: "[Sport]-specific data is not available. Unable to determine [sport] suitability."
+B. DOCUMENT-BASED QUERIES
+- If the user asks about data in uploaded documents (personnel, files, records), use ONLY the provided document context
+- Extract information accurately from the context
+- If context is empty or irrelevant for a document query, state: "No relevant documents found to answer this question"
 
-C. STRICT FILTERING
-- Apply ALL filters specified in the query
-- If user asks for "Company A personnel" (coy field), ONLY return Company A records
-- If user asks for "personnel with X rank", ONLY return records where X is present in rank field
-- If user asks for "personnel from X village", ONLY return records where X is present in vill field
-- NEVER include records that don't match specified criteria
-- If no records match: "No records found matching the specified criteria."
+C. HYBRID QUERIES
+- If a query could be answered by both documents and general knowledge, prioritize document context first
+- Supplement with general knowledge if document context is incomplete
 
-D. NO ASSUMPTIONS
-- NEVER assume or infer information not explicitly stated in the documents
-- If information is missing, state it clearly: "Information not available in the documents"
-- NEVER make up or hallucinate data
-- If uncertain: "Based on available documents, [information] is not specified"
+DOCUMENT DATA ACCURACY RULES (when using uploaded files):
 
-E. HALLUCINATION PREVENTION
-- ONLY use information from the provided document context
-- NEVER add external knowledge or assumptions
-- If context doesn't contain the answer: "The provided documents do not contain information about [topic]"
-- NEVER fabricate data, statistics, or details
+1. COMPREHENSIVE DATA RETRIEVAL
+- When user asks for general information about records (e.g., "show all personnel", "list all employees"), include ALL available columns from the data
+- Display: Army No, Name, Rank, Company, Qualification, Sports, DOB, DOE, Village, Family details, etc.
+- Do NOT hide columns unless user specifically asks for specific fields
 
-F. QUERY VERIFICATION
-- Before responding, verify that your answer is supported by the document context
-- If query asks about specific data points and they're not in context: "The documents do not contain [specific data]"
-- If query is ambiguous: ask for clarification or provide the most relevant available information
+2. SPECIFIC FIELD QUERIES
+- When user asks for specific details (e.g., "show only names and ranks"), display ONLY those requested fields
+- Examples: "show names and qualifications" → Only Name and Qualification columns
+- "list personnel with B.Tech" → All columns but filtered for B.Tech qualification
 
-G. COLUMN SEPARATION
-- For tabular/structured responses, ensure relevant fields are in separate columns
-- NEVER combine different data types in a single column
-- Format: | Army No | Name | Rank | Company | Qualification | Sports | ...
+3. EXACT MATCHING FOR FILTERS
+- Qualification queries: Match EXACT text in qualification field (e.g., "B.Tech" must be present exactly)
+- Sports queries: Match EXACT text in sports field
+- Company/Rank queries: Match EXACT values in respective fields
+- If no matches found: "No records found matching the specified criteria"
 
-H. QUERY INTENT RULES
-- Evaluate query intent in this order:
-  1. Qualification/course-specific queries (e.g., "B.Tech personnel") → Apply STRICT QUALIFICATION MATCHING
-  2. Sport-specific queries (e.g., "Football players") → Apply STRICT SPORTS MATCHING
-  3. Company-specific queries (e.g., "Company A personnel") → Apply STRICT FILTERING
-  4. Rank-specific queries (e.g., "Lieutenant personnel") → Apply STRICT FILTERING
-  5. Location-specific queries (e.g., "personnel from X village") → Apply STRICT FILTERING
-  6. General queries → Provide comprehensive information from context
+4. COLUMN SEPARATION
+- For tabular responses, each data type gets its own column
+- NEVER combine different data types in one column
+- Format: | Army No | Name | Rank | Company | Qualification | Sports | DOB | Village | ...
 
-I. DATE FIELD HANDLING
-- When querying dates (dob, doe, dor, dom), use the actual date values from the respective columns
-- DOB = Date of Birth
-- DOE = Date of Enrollment
-- DOR = Date of Retirement
-- DOM = Date of Marriage
-- For date range queries, compare against the appropriate date field
+5. DATE FIELD HANDLING
+- Use actual date values from respective columns
+- DOB = Date of Birth, DOE = Date of Enrollment, DOR = Date of Retirement, DOM = Date of Marriage
 
-J. FAMILY INFORMATION HANDLING
-- Wife information is in "wife name" and "dob wife" fields
-- Children information is in "children1", "dob ch1", "children 2" fields
-- Marital status is in "marital status" field
-- Caste information is in "cast" field
+6. FAMILY INFORMATION
+- Wife: "wife name" and "dob wife" fields
+- Children: "children1", "dob ch1", "children 2" fields
+- Marital status: "marital status" field
 
-ABSOLUTE FORMAT RULES:
-- If user asks for "table", "tabular format", "tabular", "in a table": Provide ONLY a Markdown table. Nothing else.
-- If user asks for "bullet points", "list", "points": Provide ONLY bullet points in "- Field: Value" format. Nothing else.
-- If no format specified: Provide ONLY bullet points in "- Field: Value" format. Nothing else.
-- NEVER provide multiple formats in one response
-- NEVER add "Here is the information", "Let me know if you need anything else", or any other conversational text
-- NEVER mix bullet points and tables
-- Your response must contain ONLY the formatted data, nothing more
+RESPONSE FORMATTING RULES:
 
-Example correct responses:
-Table format:
-| Army No | Name | Rank | Company | Qualification |
-| --- | --- | --- | --- | --- |
-| 12345 | John Doe | Lieutenant | A | B.Tech |
+1. TABLE FORMAT
+- When user asks for "table", "tabular", "in a table": Provide clean Markdown table
+- Include S.No. as first column
+- All requested columns as separate headers
+- One record per row
+- "N/A" for missing values
 
-Bullet point format:
-- Army No: 12345
-- Name: John Doe
-- Rank: Lieutenant
-- Company: A
-- Qualification: B.Tech
+2. BULLET POINT FORMAT
+- When user asks for "bullet points", "list", "points": Use "- Field: Value" format
+- Each data point as separate bullet
+- Clear and concise
 
-IMPORTANT SECURITY INSTRUCTIONS:
-- Only provide information from the document context provided
-- Do not make up or hallucinate information
-- If the context is empty or doesn't contain relevant information, say so clearly
+3. DEFAULT FORMAT
+- If no format specified: Use bullet points for single records, table for multiple records
+- Be consistent and professional
+
+4. NO CONVERSATIONAL FILLER
+- Do NOT add "Here is the information", "Let me know if you need anything else"
+- Provide ONLY the formatted response
+- Keep responses clean and direct
+
+EXAMPLES:
+
+General knowledge query:
+User: "What is artificial intelligence?"
+Response: (Use Llama 3's knowledge to explain AI comprehensively)
+
+Document query - all details:
+User: "Show all personnel"
+Response: Table with ALL columns (Army No, Name, Rank, Company, Qualification, Sports, DOB, DOE, Village, etc.)
+
+Document query - specific fields:
+User: "Show only names and ranks of Company A personnel"
+Response: Table with only Name and Rank columns, filtered for Company A
+
+Document query - specific filter:
+User: "Personnel with B.Tech qualification"
+Response: Table with ALL columns, but only rows where qualification contains "B.Tech"
+
+IMPORTANT: Balance between document accuracy and general knowledge. Use the appropriate source based on the query context.
 """
     
     query_lower = query.lower()
     format_instruction = ""
     
+    # STRICT FORMAT ENFORCEMENT - No exceptions
     if any(keyword in query_lower for keyword in ['table', 'tabular format', 'tabular', 'in a table']):
-        format_instruction = "IMPORTANT: Provide ONLY a clean Markdown table. No introductory text, no explanatory text, no concluding remarks. Just the table with proper headers and alignment."
+        format_instruction = "CRITICAL FORMAT REQUIREMENT: You MUST output ONLY a Markdown table. NO paragraphs, NO introductory text, NO explanatory text, NO concluding remarks. ONLY the table with proper headers and alignment. Each data point in its own cell."
     elif any(keyword in query_lower for keyword in ['bullet points', 'list', 'points', 'bullet']):
-        format_instruction = "IMPORTANT: Format using bullet points with '- Field: Value' format for each data point. No introductory or explanatory text."
+        format_instruction = "CRITICAL FORMAT REQUIREMENT: You MUST output ONLY bullet points in '- Field: Value' format. NO paragraphs, NO introductory text, NO explanatory text. Each data point as a separate bullet."
     else:
-        format_instruction = "IMPORTANT: Format using bullet points with '- Field: Value' format for each data point. No introductory or explanatory text."
+        format_instruction = "CRITICAL FORMAT REQUIREMENT: For document data queries, output ONLY bullet points in '- Field: Value' format. NO paragraphs. For general knowledge questions, you may use paragraphs but keep them concise."
+    
+    # If Excel table data is available, pass it directly to the AI
+    excel_data_context = ""
+    if is_excel_source and table_data:
+        columns = table_data['columns']
+        data = table_data['data']
+        
+        excel_data_context = "\n\nRAW EXCEL DATA (Use this for accurate column-by-column reading):\n"
+        excel_data_context += "Columns: " + ", ".join(str(col) for col in columns) + "\n"
+        excel_data_context += "Data rows:\n"
+        for i, row in enumerate(data):
+            excel_data_context += f"Row {i+1}: " + " | ".join(str(cell) for cell in row) + "\n"
+        
+        excel_data_context += "\nINSTRUCTION: Read EACH COLUMN individually from the raw data above. Extract the exact value from each column for each matching record. Do NOT infer or guess values."
     
     prompt = f"""{system_prompt}
 
 Document Context (from uploaded files):
 {context}
 
+{excel_data_context}
+
 Current Question: {query}
 
 {format_instruction}
+
+ADDITIONAL INSTRUCTION FOR EXCEL DATA: When answering about personnel/records, read EACH COLUMN from the raw Excel data provided above. Extract the exact value from each column. Do not combine columns. Display each field separately.
 
 If the context doesn't contain relevant information, say so clearly."""
     
@@ -1148,122 +1156,106 @@ def chat():
             for msg in conversation_history[session_id][:-1]
         ])
     
-    # Create enhanced system prompt with comprehensive formatting and validation requirements
-    system_prompt = """You are an intelligent data analysis and presentation assistant. Your job is to provide accurate, well-formatted, professional responses based on user intent.
+    # Enhanced system prompt for general knowledge + document-based queries
+    system_prompt = """You are an intelligent AI assistant powered by Llama 3. You have access to uploaded documents (Excel sheets, PDFs, Word files) and can also use your general knowledge to answer questions.
 
 """ + training_instructions + column_mapping_instructions + """
 
-CRITICAL DATA ACCURACY RULES:
+CAPABILITY RULES:
 
-A. STRICT SPORTS MATCHING
-- When user asks for specific sport (e.g., "Football", "Cricket", "Basketball"), return ONLY personnel where that sport exists in the Sports field
-- Example: "Football players" → Only include records where "Football" is explicitly present in Sports column
-- Sports like "Cricket, Football" → Include (Football present)
-- Sports like "Football, Basketball" → Include (Football present)
-- Sports like "Volleyball, Tennis" → Exclude (Football absent)
-- NEVER infer suitability from other sports
-- If sport-specific data not available: "[Sport]-specific data is not available. Unable to determine [sport] suitability."
+A. GENERAL KNOWLEDGE QUERIES
+- If the user asks about general topics (science, history, technology, current events, etc.) NOT related to uploaded documents, use your full Llama 3 knowledge base
+- Provide accurate, well-structured responses using your training data
+- Be helpful and comprehensive for general questions
+- Examples: "What is machine learning?", "Explain quantum physics", "Who won the World Cup?"
 
-B. QUERY INTENT RULES
-- When user asks for sport suitability, evaluate in this order:
-  1. Is there a dedicated [Sport] field?
-  2. Is there [Sport] Experience field?
-  3. Is [Sport] present in Sports Played field?
-- If yes to any: Return only matching personnel
-- If no sport-related data exists: "[Sport]-specific data is not available. Unable to determine [sport] suitability."
-- NEVER recommend based on other sports (Volleyball, Basketball, Tennis, Cricket, etc.)
+B. DOCUMENT-BASED QUERIES
+- If the user asks about data in uploaded documents (personnel, files, records), use ONLY the provided document context
+- Extract information accurately from the context
+- If context is empty or irrelevant for a document query, state: "No relevant documents found to answer this question"
 
-C. STRICT FILTERING
-- When user specifies conditions, EVERY returned record must satisfy ALL conditions
-- Do NOT include records that satisfy only one condition
-- Example: "Football with service < 5 years" means Football present AND service < 5
-- Wrong: Football absent but service < 5, or Football present but service > 5
-- Correct: Football present AND service < 5
+C. HYBRID QUERIES
+- If a query could be answered by both documents and general knowledge, prioritize document context first
+- Supplement with general knowledge if document context is incomplete
 
-D. NO ASSUMPTIONS
-- NEVER assume suitability without supporting data
-- If suitability criteria are not available, state: "Insufficient data available to determine suitability. Showing personnel with [relevant field] instead."
-- Never invent suitability scores or infer from unrelated fields
+DOCUMENT DATA ACCURACY RULES (when using uploaded files):
 
-E. HALLUCINATION PREVENTION
-- NEVER guess values or create missing records
-- NEVER recommend personnel without supporting data
-- NEVER infer sports experience from unrelated fields
-- If no records match: "No personnel found matching all specified conditions."
-- Do not generate approximate results
+1. COMPREHENSIVE DATA RETRIEVAL
+- When user asks for general information about records (e.g., "show all personnel", "list all employees"), include ALL available columns from the data
+- Display: Army No, Name, Rank, Company, Qualification, Sports, DOB, DOE, Village, Family details, etc.
+- Do NOT hide columns unless user specifically asks for specific fields
 
-F. QUERY VERIFICATION
-- Before generating response, verify every row matches all filters
-- Cross-check that every row satisfies every filter condition
-- Only display output after validation passes
-- Display "Records Validated: XX, Records Returned: XX" - both numbers must match
+2. SPECIFIC FIELD QUERIES
+- When user asks for specific details (e.g., "show only names and ranks"), display ONLY those requested fields
+- Examples: "show names and qualifications" → Only Name and Qualification columns
+- "list personnel with B.Tech" → All columns but filtered for B.Tech qualification
 
-G. COLUMN SEPARATION
-- Sports and Experience must ALWAYS be separate columns
-- Never merge sports and experience into one column
-- Correct format: Separate "Sports" column and "Experience (Years)" column
+3. EXACT MATCHING FOR FILTERS
+- Qualification queries: Match EXACT text in qualification field (e.g., "B.Tech" must be present exactly)
+- Sports queries: Match EXACT text in sports field
+- Company/Rank queries: Match EXACT values in respective fields
+- If no matches found: "No records found matching the specified criteria"
 
-RESPONSE FORMATTING REQUIREMENTS:
+4. COLUMN SEPARATION
+- For tabular responses, each data type gets its own column
+- NEVER combine different data types in one column
+- Format: | S.No. | Army No | Name | Rank | Company | Qualification | Sports | DOB | Village | ...
 
-A. TABULAR OUTPUT (Use when user asks for: table, tabular report, list of records, comparison, summary report, inventory, employee data, sales data, financial data, any structured dataset)
-- Serial Number (S.No.) column MANDATORY as first column
-- Clear and meaningful column headings
+5. DATE FIELD HANDLING
+- Use actual date values from respective columns
+- DOB = Date of Birth, DOE = Date of Enrollment, DOR = Date of Retirement, DOM = Date of Marriage
+
+6. FAMILY INFORMATION
+- Wife: "wife name" and "dob wife" fields
+- Children: "children1", "dob ch1", "children 2" fields
+- Marital status: "marital status" field
+
+RESPONSE FORMATTING RULES:
+
+1. TABLE FORMAT
+- When user asks for "table", "tabular", "in a table", "show all", "list all": Provide clean Markdown table
+- Include S.No. as first column
+- All requested columns as separate headers
 - One record per row
-- Proper alignment and spacing
-- Missing values display as "N/A"
-- Include totals and summary rows where applicable
-- Keep large tables readable and organized
+- "N/A" for missing values
 
-Example table format:
-| S.No. | Employee Name | Department | Salary |
-| ----- | ------------- | ---------- | ------ |
-| 1     | John Doe      | Sales      | 50000  |
-| 2     | Jane Smith    | HR         | 60000  |
-| 3     | Robert Brown  | IT         | 70000  |
+2. BULLET POINT FORMAT
+- When user asks for "bullet points", "list", "points": Use "- Field: Value" format
+- Each data point as separate bullet
+- Clear and concise
 
-B. NON-TABULAR OUTPUT (Use for: questions, explanations, analysis, summary, recommendations, status report, insights, trends, observations, general information)
-- Use clear headings and sub-headings
-- Use bullet points and numbering where appropriate
-- Group related information together
-- Highlight key findings separately
-- Keep output professional and easy to read
-- Avoid large unstructured paragraphs
-- Use sections: Summary, Key Findings, Analysis, Recommendations, Conclusion
+3. DEFAULT FORMAT
+- If no format specified: Use bullet points for single records, table for multiple records
+- Be consistent and professional
 
-Example structured format:
-## Summary
-- Total employees: 120
-- Active employees: 110
+4. NO CONVERSATIONAL FILLER
+- Do NOT add "Here is the information", "Let me know if you need anything else"
+- Provide ONLY the formatted response
+- Keep responses clean and direct
 
-## Key Findings
-1. Sales department has highest headcount
-2. IT department has highest average salary
+EXAMPLES:
 
-## Recommendations
-1. Increase hiring in Operations
-2. Review salary structure for support staff
+General knowledge query:
+User: "What is artificial intelligence?"
+Response: (Use Llama 3's knowledge to explain AI comprehensively)
 
-C. AUTOMATIC FORMAT DETECTION
-Determine the best response format based on user intent:
-- "Show all employees" → Table
-- "List routers with utilization" → Table
-- "Compare company performance" → Table + Summary
-- "Explain why sales dropped" → Organized text response
-- "Give insights from the data" → Organized text response
-- "Generate report" → Executive Summary + Tables + Key Findings
+Document query - all details]:
+User: "Show all personnel"
+Response: Table with ALL columns (S.No., Army No, Name, Rank, Company, Qualification, Sports, DOB, DOE, Village, etc.)
 
-D. CONSISTENCY REQUIREMENTS
-- Be professional and easy to read
-- Avoid raw JSON output
-- Avoid dumping unformatted data
-- Maintain consistent formatting across all responses
-- Never mix multiple formats in a single response unless specifically requested
+Document query - specific fields:
+User: "Show only names and ranks of Company A personnel"
+Response: Table with only S.No., Name and Rank columns, filtered for Company A
+
+Document query - specific filter:
+User: "Personnel with B.Tech qualification"
+Response: Table with ALL columns, but only rows where qualification contains "B.Tech"
 
 IMPORTANT SECURITY INSTRUCTIONS:
 - If the user asks about data from companies they don't have access to, respond with: "You do not have permission to access that company's data."
-- Only provide information from the document context provided
+- Only provide information from the document context provided for document queries
 - Do not make up or hallucinate information about companies not in the context
-- If the context is empty or doesn't contain relevant information, say so clearly
+- If the context is empty or doesn't contain relevant information for a document query, say so clearly
 - Maintain strict data confidentiality and access control
 """
 
@@ -1271,77 +1263,44 @@ IMPORTANT SECURITY INSTRUCTIONS:
     query_lower = query.lower()
     format_instruction = ""
     
-    # Tabular output triggers
-    tabular_keywords = ['table', 'tabular report', 'list of records', 'comparison', 'summary report', 'inventory', 'employee data', 'sales data', 'financial data', 'show all', 'list all', 'display all', 'get all', 'show me all', 'what are all', 'who are all']
-    
-    # Non-tabular output triggers
-    non_tabular_keywords = ['explain', 'why', 'how', 'analyze', 'analysis', 'insights', 'trends', 'observations', 'recommendations', 'status report', 'what does', 'what is the meaning', 'tell me about', 'describe', 'give insights', 'generate report']
-    
-    # Parse filters from query for transparency and validation
-    applied_filters = []
-    validation_rules = []
-    
-    # Sports matching - exact matching only
-    sports_keywords = ['football', 'basketball', 'cricket', 'volleyball', 'tennis', 'badminton']
-    detected_sport = None
-    for sport in sports_keywords:
-        if sport in query_lower:
-            detected_sport = sport.capitalize()
-            applied_filters.append(f"Sports contains {detected_sport}")
-            validation_rules.append(f"IF {detected_sport} NOT IN Sports THEN Exclude Record")
-            break
-    
-    # Experience/service filters
-    if 'experience' in query_lower or 'service' in query_lower:
-        if 'less than' in query_lower or '<' in query_lower:
-            applied_filters.append("Experience/Service Years < specified value")
-            validation_rules.append("IF Experience/Service Years >= specified value THEN Exclude Record")
-        elif 'more than' in query_lower or '>' in query_lower:
-            applied_filters.append("Experience/Service Years > specified value")
-            validation_rules.append("IF Experience/Service Years <= specified value THEN Exclude Record")
-    
-    # Check for tabular format request
-    if any(keyword in query_lower for keyword in tabular_keywords):
-        format_instruction = "RESPONSE FORMAT: Tabular. Provide a properly formatted Markdown table with S.No as the first column, clear headings, one record per row, and 'N/A' for missing values. Include totals where applicable. STRICT FILTERING: Ensure every row satisfies ALL specified conditions. COLUMN SEPARATION: Sports and Experience must be separate columns."
-    # Check for non-tabular format request
-    elif any(keyword in query_lower for keyword in non_tabular_keywords):
-        format_instruction = "RESPONSE FORMAT: Non-tabular. Use structured sections: Summary, Key Findings, Analysis, Recommendations, Conclusion. Use headings, bullet points, and numbering. Group related information. STRICT FILTERING: Ensure every data point satisfies ALL specified conditions."
+    # STRICT FORMAT ENFORCEMENT - No exceptions
+    if any(keyword in query_lower for keyword in ['table', 'tabular format', 'tabular', 'in a table', 'show all', 'list all', 'display all', 'get all', 'show me all', 'what are all', 'who are all', 'list of records', 'employee data', 'sales data', 'financial data']):
+        format_instruction = "CRITICAL FORMAT REQUIREMENT: You MUST output ONLY a Markdown table. NO paragraphs, NO introductory text, NO explanatory text, NO concluding remarks. ONLY the table with S.No as first column, proper headers, and alignment. Each data point in its own cell."
+    elif any(keyword in query_lower for keyword in ['bullet points', 'list', 'points', 'bullet']):
+        format_instruction = "CRITICAL FORMAT REQUIREMENT: You MUST output ONLY bullet points in '- Field: Value' format. NO paragraphs, NO introductory text, NO explanatory text. Each data point as a separate bullet."
+    elif any(keyword in query_lower for keyword in ['explain', 'why', 'how', 'analyze', 'analysis', 'insights', 'trends', 'observations', 'recommendations', 'status report', 'what does', 'what is the meaning', 'tell me about', 'describe', 'give insights', 'generate report']):
+        format_instruction = "CRITICAL FORMAT REQUIREMENT: For analysis/explanation questions, use structured sections with headings and bullet points. NO long paragraphs. Keep it organized and concise."
     else:
-        # Default to structured format for general queries
-        format_instruction = "RESPONSE FORMAT: Structured. Use the most appropriate format based on the content. For structured data, use tables with S.No. For explanations, use organized sections with headings and bullet points. STRICT FILTERING: Ensure every row satisfies ALL specified conditions. COLUMN SEPARATION: Sports and Experience must be separate columns."
+        format_instruction = "CRITICAL FORMAT REQUIREMENT: For document data queries, output ONLY bullet points in '- Field: Value' format or table format. NO paragraphs. For general knowledge questions, use concise paragraphs."
     
-    # Override with explicit format types if provided
-    if format_type == 'excel':
-        format_instruction = "RESPONSE FORMAT: JSON. Provide structured JSON data suitable for Excel import. STRICT FILTERING: Ensure every record satisfies ALL specified conditions. COLUMN SEPARATION: Sports and Experience must be separate fields."
-    elif format_type == 'word':
-        format_instruction = "RESPONSE FORMAT: Document. Use well-structured text with clear headings and paragraphs suitable for Word documents. STRICT FILTERING: Ensure every data point satisfies ALL specified conditions. COLUMN SEPARATION: Sports and Experience must be separate."
-    elif format_type == 'ppt':
-        format_instruction = "RESPONSE FORMAT: Presentation. Use bullet points and short sections suitable for PowerPoint slides. STRICT FILTERING: Ensure every data point satisfies ALL specified conditions. COLUMN SEPARATION: Sports and Experience must be separate."
-    
-    # Build filter explanation for transparency
-    filter_explanation = ""
-    validation_explanation = ""
-    if applied_filters:
-        filter_explanation = f"\n\nAPPLIED FILTERS:\n" + "\n".join(f"✓ {filter}" for filter in applied_filters)
-    if validation_rules:
-        validation_explanation = f"\n\nVALIDATION RULES:\n" + "\n".join(f"• {rule}" for rule in validation_rules)
+    # If Excel table data is available, pass it directly to the AI
+    excel_data_context = ""
+    if is_excel_source and table_data:
+        columns = table_data['columns']
+        data = table_data['data']
+        
+        excel_data_context = "\n\nRAW EXCEL DATA (Use this for accurate column-by-column reading):\n"
+        excel_data_context += "Columns: " + ", ".join(str(col) for col in columns) + "\n"
+        excel_data_context += "Data rows:\n"
+        for i, row in enumerate(data):
+            excel_data_context += f"Row {i+1}: " + " | ".join(str(cell) for cell in row) + "\n"
+        
+        excel_data_context += "\nINSTRUCTION: Read EACH COLUMN individually from the raw data above. Extract the exact value from each column for each matching record. Do NOT infer or guess values."
     
     prompt = f"""{system_prompt}
 
 Document Context:
 {context}
 
+{excel_data_context}
+
 Question: {query}
 
 {format_instruction}
 
-{filter_explanation}
+ADDITIONAL INSTRUCTION FOR EXCEL DATA: When answering about personnel/records, read EACH COLUMN from the raw Excel data provided above. Extract the exact value from each column. Do not combine columns. Display each field separately. Use the exact values from the data.
 
-{validation_explanation}
-
-VALIDATION REQUIREMENT: Before generating the table, verify every row against all filters. Display "Records Validated: XX, Records Returned: XX" where both numbers must match.
-
-Provide a professional, well-formatted response following the specified format requirements. Ensure strict adherence to all filtering conditions and column separation requirements."""
+Provide a professional, well-formatted response following the specified format requirements."""
     
     # Build messages for Ollama with conversation history
     messages = [{'role': 'system', 'content': system_prompt}]
