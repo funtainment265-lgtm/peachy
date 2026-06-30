@@ -217,7 +217,12 @@ def analyze_and_store_excel_schema(file_id, table_data, filepath):
             for row in data[:min(100, len(data))]:  # Sample first 100 rows
                 if col_index < len(row):
                     value = row[col_index]
-                    sample_values.append(str(value))
+                    # Convert datetime objects to ISO format strings for JSON serialization
+                    if hasattr(value, 'isoformat'):
+                        value = value.isoformat()
+                    else:
+                        value = str(value)
+                    sample_values.append(value)
                     
                     # Detect data type
                     if value is None or str(value).strip() == '':
@@ -460,10 +465,20 @@ def extract_text_from_excel(file_path):
     try:
         df = pd.read_excel(file_path)
         text = df.to_string()
-        # Store as JSON for table rendering
+        
+        # Convert datetime objects to strings for JSON serialization
+        def convert_value(val):
+            if hasattr(val, 'isoformat'):
+                return val.isoformat()
+            elif pd.isna(val):
+                return ""
+            else:
+                return str(val)
+        
+        # Store as JSON for table rendering with datetime conversion
         table_data = {
             'columns': df.columns.tolist(),
-            'data': df.values.tolist(),
+            'data': [[convert_value(val) for val in row] for row in df.values.tolist()],
             'index': df.index.tolist()
         }
     except Exception as e:
